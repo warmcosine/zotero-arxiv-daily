@@ -59,8 +59,13 @@ def get_empty_html():
   """
   return block_template
 
-def get_block_html(title:str, authors:str, rate:str,arxiv_id:str, abstract:str, pdf_url:str, code_url:str=None, affiliations:str=None):
+def get_block_html(title:str, authors:str, rate:str,arxiv_id:str, abstract:str, pdf_url:str, code_url:str=None, affiliations:str=None, motivation:str="", method:str="", result:str="", conclusion:str=""):
     code = f'<a href="{code_url}" style="display: inline-block; text-decoration: none; font-size: 14px; font-weight: bold; color: #fff; background-color: #5bc0de; padding: 8px 16px; border-radius: 4px; margin-left: 8px;">Code</a>' if code_url else ''
+    affiliations = affiliations or 'Unknown Affiliation'
+    motivation = motivation or 'N/A'
+    method = method or 'N/A'
+    result = result or 'N/A'
+    conclusion = conclusion or 'N/A'
     block_template = """
     <table border="0" cellpadding="0" cellspacing="0" width="100%" style="font-family: Arial, sans-serif; border: 1px solid #ddd; border-radius: 8px; padding: 16px; background-color: #f9f9f9;">
     <tr>
@@ -85,21 +90,34 @@ def get_block_html(title:str, authors:str, rate:str,arxiv_id:str, abstract:str, 
             <strong>arXiv ID:</strong> <a href="https://arxiv.org/abs/{arxiv_id}" target="_blank">{arxiv_id}</a>
         </td>
     </tr>
-    <tr>
         <td style="font-size: 14px; color: #333; padding: 8px 0;">
             <strong>TLDR:</strong> {abstract}
         </td>
     </tr>
-
     <tr>
-        <td style="padding: 8px 0;">
-            <a href="{pdf_url}" style="display: inline-block; text-decoration: none; font-size: 14px; font-weight: bold; color: #fff; background-color: #d9534f; padding: 8px 16px; border-radius: 4px;">PDF</a>
-            {code}
+        <td style="font-size: 14px; color: #333; padding: 8px 0;">
+            <strong>Motivation:</strong> {motivation}
+        </td>
+    </tr>
+    <tr>
+        <td style="font-size: 14px; color: #333; padding: 8px 0;">
+            <strong>Method:</strong> {method}
+        </td>
+    </tr>
+    <tr>
+        <td style="font-size: 14px; color: #333; padding: 8px 0;">
+            <strong>Result:</strong> {result}
+        </td>
+    </tr>
+    <tr>
+        <td style="font-size: 14px; color: #333; padding: 8px 0;">
+            <strong>Conclusion:</strong> {conclusion}
         </td>
     </tr>
 </table>
 """
-    return block_template.format(title=title, authors=authors,rate=rate,arxiv_id=arxiv_id, abstract=abstract, pdf_url=pdf_url, code=code, affiliations=affiliations)
+    return block_template.format(title=title, authors=authors,rate=rate,arxiv_id=arxiv_id, abstract=abstract, pdf_url=pdf_url, code=code, affiliations=affiliations, motivation=motivation, method=method, result=result, conclusion=conclusion)
+
 
 def get_stars(score:float):
     full_star = '<span class="full-star">⭐</span>'
@@ -139,7 +157,22 @@ def render_email(papers:list[ArxivPaper]):
                 affiliations += ', ...'
         else:
             affiliations = 'Unknown Affiliation'
-        parts.append(get_block_html(p.title, authors,rate,p.arxiv_id ,p.tldr, p.pdf_url, p.code_url, affiliations))
+        parts.append(
+            get_block_html(
+                p.title,
+                authors,
+                rate,
+                p.arxiv_id,
+                p.tldr,
+                p.pdf_url,
+                p.code_url,
+                affiliations,
+                p.motivation,
+                p.method,
+                p.result,
+                p.conclusion,
+            )
+        )
         time.sleep(10)
 
     content = '<br>' + '</br><br>'.join(parts) + '</br>'
