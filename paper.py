@@ -66,9 +66,6 @@ class ArxivPaper:
     
     @cached_property
     def tex(self) -> dict[str,str]:
-        if self.pdf_url is None:
-            logger.warning(f"Source for {self.arxiv_id} not available (no PDF URL). Skipping source analysis.")
-            return None
         with ExitStack() as stack:
             tmpdirname = stack.enter_context(TemporaryDirectory())
             # file = self._paper.download_source(dirpath=tmpdirname)
@@ -150,28 +147,38 @@ class ArxivPaper:
                 file_contents["all"] = None
         return file_contents
     
-    @cached_property
-    def tldr(self) -> str:
+    def _ensure_intro_conclusion(self) -> tuple[str, str]:
+        if hasattr(self, "_section_cache"):
+            return self._section_cache["introduction"], self._section_cache["conclusion"]
         introduction = ""
         conclusion = ""
         if self.tex is not None:
             content = self.tex.get("all")
             if content is None:
                 content = "\n".join(self.tex.values())
-            #remove cite
             content = re.sub(r'~?\\cite.?\{.*?\}', '', content)
-            #remove figure
             content = re.sub(r'\\begin\{figure\}.*?\\end\{figure\}', '', content, flags=re.DOTALL)
-            #remove table
             content = re.sub(r'\\begin\{table\}.*?\\end\{table\}', '', content, flags=re.DOTALL)
-            #find introduction and conclusion
-            # end word can be \section or \end{document} or \bibliography or \appendix
-            match = re.search(r'\\section\{Introduction\}.*?(\\section|\\end\{document\}|\\bibliography|\\appendix|$)', content, flags=re.DOTALL)
-            if match:
-                introduction = match.group(0)
-            match = re.search(r'\\section\{Conclusion\}.*?(\\section|\\end\{document\}|\\bibliography|\\appendix|$)', content, flags=re.DOTALL)
-            if match:
-                conclusion = match.group(0)
+            intro_match = re.search(
+                r'\\section\{Introduction\}.*?(\\section|\\end\{document\}|\\bibliography|\\appendix|$)',
+                content,
+                flags=re.DOTALL,
+            )
+            if intro_match:
+                introduction = intro_match.group(0)
+            concl_match = re.search(
+                r'\\section\{Conclusion\}.*?(\\section|\\end\{document\}|\\bibliography|\\appendix|$)',
+                content,
+                flags=re.DOTALL,
+            )
+            if concl_match:
+                conclusion = concl_match.group(0)
+        self._section_cache = {"introduction": introduction, "conclusion": conclusion}
+        return introduction, conclusion
+    
+    @cached_property
+    def tldr(self) -> str:
+        introduction, conclusion = self._ensure_intro_conclusion()
         llm = get_llm()
         prompt = """Given the title, abstract, introduction and the conclusion (if any) of a paper in latex format, generate a one-sentence TLDR summary in __LANG__:
         
@@ -196,13 +203,56 @@ class ArxivPaper:
             messages=[
                 {
                     "role": "system",
-                    "content": "You are an assistant who perfectly summarizes scientific paper, and gives the core idea of the paper to the user.",
+                    "content": "You are an wireless communication and artificial intelligence assistant who perfectly summarizes scientific paper, and gives the core idea of the paper to the user.",
                 },
                 {"role": "user", "content": prompt},
             ]
         )
-        return tldr
+        return tldr.strip()
 
+    def _generate_section_summary(self, section_name: str) -> str:
+        llm = get_llm()
+        introduction, conclusion = self._ensure_intro_conclusion()
+        prompt = f"""Given the title, abstract, introduction and conclusion (if any) of a paper in LaTeX format, provide a concise {section_name} summary in {llm.lang}:
+        \\title{{{self.title}}}
+        \\begin{{abstract}}{self.summary}\\end{{abstract}}
+        {introduction}
+        {conclusion}
+        """
+        enc = tiktoken.encoding_for_model("gpt-4o")
+        prompt_tokens = enc.encode(prompt)[:4000]
+        prompt = enc.decode(prompt_tokens)
+        try:
+            summary = llm.generate(
+                messages=[
+                    {
+                        "role": "system",
+                        "content": f"You summarise the {section_name} of scientific papers accurately and briefly.",
+                    },
+                    {"role": "user", "content": prompt},
+                ]
+            )
+        except Exception as exc:
+            logger.debug(f"Failed to generate {section_name} for {self.arxiv_id}: {exc}")
+            return ""
+        return summary.strip()
+
+    @cached_property
+    def motivation(self) -> str:
+        return self._generate_section_summary("Motivation")
+
+    @cached_property
+    def method(self) -> str:
+        return self._generate_section_summary("Methodology")
+
+    @cached_property
+    def result(self) -> str:
+        return self._generate_section_summary("Results")
+
+    @cached_property
+    def conclusion(self) -> str:
+        return self._generate_section_summary("Conclusion")
+    
     @cached_property
     def affiliations(self) -> Optional[list[str]]:
         if self.tex is not None:
